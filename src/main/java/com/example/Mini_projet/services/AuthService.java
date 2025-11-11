@@ -1,67 +1,110 @@
 package com.example.Mini_projet.services;
 
-
-
+import com.example.Mini_projet.entity.ERole;
 import com.example.Mini_projet.entity.Role;
-import com.example.Mini_projet.entity.Token;
-import com.example.Mini_projet.entity.TokenType;
 import com.example.Mini_projet.entity.User;
 import com.example.Mini_projet.repository.RoleRepository;
-import com.example.Mini_projet.repository.TokenRepository;
 import com.example.Mini_projet.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import com.example.Mini_projet.requests.RegisterRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashSet;
+import java.util.Set;
 
 @Service
-@RequiredArgsConstructor
+@Transactional
 public class AuthService {
 
-    private final UserRepository userRepository;
-    private final RoleRepository roleRepository;
-    private final TokenRepository tokenRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
-    private final AuthenticationManager authenticationManager;
+    @Autowired
+    private UserRepository userRepository;
 
-    public String register(User user) {
-        Role userRole = roleRepository.findByName(Role.RoleName.ROLE_USER)
-                .orElseThrow(() -> new RuntimeException("Role non trouvé"));
+    @Autowired
+    private RoleRepository roleRepository;
 
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
-        user.setRole(userRole);
-        User savedUser = userRepository.save(user);
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
-        String jwtToken = jwtService.generateToken(savedUser);
-        saveUserToken(savedUser, jwtToken);
+    @Autowired
+    private AuthenticationManager authenticationManager;
 
-        return jwtToken;
-    }
+    @Autowired
+    private JwtService jwtService;
 
-    public String login(String email, String password) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(email, password)
+    public User register(RegisterRequest request) {
+        // Vérifier si l'email existe déjà
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new RuntimeException("Error: Email is already in use!");
+        }
+
+        // Créer un nouvel utilisateur
+        User user = new User(
+                request.getFirstname(),
+                request.getLastname(),
+                request.getEmail(),
+                passwordEncoder.encode(request.getPassword())
         );
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        // Assigner les rôles
+        Set<Role> roles = assignRoles(request.getRole());
+        user.setRoles(roles);
 
-        String jwtToken = jwtService.generateToken(user);
-        saveUserToken(user, jwtToken);
-        return jwtToken;
+        return userRepository.save(user);
     }
 
-    private void saveUserToken(User user, String jwtToken) {
-        Token token = Token.builder()
-                .user(user)
-                .token(jwtToken)
-                .tokenType(TokenType.BEARER)
-                .expired(false)
-                .revoked(false)
-                .build();
-        tokenRepository.save(token);
+    public String authenticate(String email, String password) {
+        try {
+            // Authentifier l'utilisateur
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(email, password)
+            );
+
+            // Récupérer l'utilisateur
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            // Générer le token JWT
+            return jwtService.generateToken(UserDetailsImpl.build(user));
+
+        } catch (AuthenticationException e) {
+            throw new RuntimeException("Invalid email or password");
+        }
+    }
+
+    /**
+     * Assigner les rôles à l'utilisateur
+     */
+    private Set<Role> assignRoles(Set<String> strRoles) {
+        Set<Role> roles = new HashSet<>();
+
+        if (strRoles == null || strRoles.isEmpty()) {
+            // Par défaut, ROLE_USER
+            Role userRole = roleRepository.findByName(ERole.ROLE_USER)
+                    .orElseThrow(() -> new RuntimeException("Error: ROLE_USER not found. Please create roles first."));
+            roles.add(userRole);
+        } else {
+            // Assigner les rôles spécifiés
+            strRoles.forEach(role -> {
+                switch (role.toLowerCase()) {
+                    case "admin":
+                        Role adminRole = roleRepository.findByName(ERole.ROLE_ADMIN)
+                                .orElseThrow(() -> new RuntimeException("Error: ROLE_ADMIN not found. Please create roles first."));
+                        roles.add(adminRole);
+                        break;
+                    case "user":
+                    default:
+                        Role userRole = roleRepository.findByName(ERole.ROLE_USER)
+                                .orElseThrow(() -> new RuntimeException("Error: ROLE_USER not found. Please create roles first."));
+                        roles.add(userRole);
+                }
+            });
+        }
+
+        return roles;
     }
 }
-

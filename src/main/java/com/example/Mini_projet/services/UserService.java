@@ -1,70 +1,52 @@
 package com.example.Mini_projet.services;
 
 
-
-
 import com.example.Mini_projet.entity.User;
 import com.example.Mini_projet.repository.UserRepository;
-import com.example.Mini_projet.responses.UserResponse;
-import com.example.Mini_projet.requests.UserUpdateRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@RequiredArgsConstructor
-public class UserService {
+public class UserService implements UserDetailsService {
+    @Autowired
+    private UserRepository userRepository;
 
-    private final UserRepository userRepository;
+    @Override
+    @Transactional
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("User Not Found with email: " + email));
 
-    // 🔹 Lister tous les users
-    public List<UserResponse> getAllUsers() {
-        return userRepository.findAll()
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
+        return UserDetailsImpl.build(user);
     }
 
-    // 🔹 Obtenir un user par ID (avec réponse formatée)
-    public UserResponse getUserByIdResponse(Long id) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Utilisateur non trouvé"));
-        return mapToResponse(user);
+    // Méthode pour récupérer tous les utilisateurs
+    public java.util.List<User> getAllUsers() {
+        return userRepository.findAll();
     }
 
-    // 🔹 Mettre à jour un user (ADMIN uniquement)
-    public UserResponse updateUser(Long id, UserUpdateRequest request) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Utilisateur non trouvé"));
-
-        user.setNom(request.getNom());
-        user.setPrenom(request.getPrenom());
-        user.setCin(request.getCin());
-        user.setTel(request.getTel());
-        user.setAdresse(request.getAdresse());
-
-        User updatedUser = userRepository.save(user);
-        return mapToResponse(updatedUser);
+    // Méthode pour récupérer un utilisateur par ID
+    public User getUserById(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + id));
     }
 
-    // 🔹 Supprimer un user
+    // Méthode pour mettre à jour un utilisateur
+    public User updateUser(Long id, User userDetails) {
+        User user = getUserById(id);
+        user.setFirstname(userDetails.getFirstname());
+        user.setLastname(userDetails.getLastname());
+        user.setEmail(userDetails.getEmail());
+        return userRepository.save(user);
+    }
+
+    // Méthode pour supprimer un utilisateur
     public void deleteUser(Long id) {
-        userRepository.deleteById(id);
-    }
-
-    // 🔹 Méthode privée pour convertir User → UserResponse
-    private UserResponse mapToResponse(User user) {
-        return UserResponse.builder()
-                .id(user.getId())
-                .nom(user.getNom())
-                .prenom(user.getPrenom())
-                .cin(user.getCin())
-                .tel(user.getTel())
-                .adresse(user.getAdresse())
-                .email(user.getEmail())
-                .role(user.getRole().getName())
-                .build();
+        User user = getUserById(id);
+        userRepository.delete(user);
     }
 }
-
